@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/BurntSushi/toml"
+	"github.com/jessevdk/go-flags"
+	"github.com/vmihailenco/msgpack"
 	"gopkg.in/yaml.v2"
 	"io"
 	"os"
 	"strings"
-	"github.com/vmihailenco/msgpack"
-	"github.com/jessevdk/go-flags"
 )
 
 var (
@@ -20,11 +20,15 @@ var (
 type Jc struct {
 	FromType string
 	ToType   string
-	Options  map[string]interface{}
+	Indent   *string
 }
 
-func Decode(r io.Reader, fromType string, data interface{}) error {
-	switch strings.ToLower(fromType) {
+func cleanDataFromYaml(data interface{}) {
+	return // TODO
+}
+
+func (jc *Jc) Decode(r io.Reader, data interface{}) error {
+	switch strings.ToLower(jc.FromType) {
 	case "json":
 		dec := json.NewDecoder(r)
 		err := dec.Decode(data)
@@ -32,27 +36,38 @@ func Decode(r io.Reader, fromType string, data interface{}) error {
 	case "toml":
 		_, err := toml.DecodeReader(r, data)
 		return err
-	//case "yaml":
-	//	dec := yaml.NewDecoder(r)
-	//	err := dec.Decode(data)
-	//	return err
+	case "yaml":
+		dec := yaml.NewDecoder(r)
+		err := dec.Decode(data)
+		if err != nil {
+			return err
+		}
+		cleanDataFromYaml(data)
+		return nil
 	case "msgpack":
 		dec := msgpack.NewDecoder(r)
 		err := dec.Decode(data)
 		return err
 	default:
-		return fmt.Errorf("invalid --from type: %s", fromType)
+		return fmt.Errorf("invalid --from type: %s", jc.FromType)
 	}
 }
 
-func Encode(w io.Writer, toType string, data interface{}) error {
-	switch strings.ToLower(toType) {
+func (jc *Jc) Encode(w io.Writer, data interface{}) error {
+	switch strings.ToLower(jc.ToType) {
 	case "json":
 		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		if jc.Indent != nil {
+			enc.SetIndent("", *jc.Indent)
+		}
 		err := enc.Encode(data)
 		return err
 	case "toml":
 		enc := toml.NewEncoder(w)
+		if jc.Indent != nil {
+			enc.Indent = *jc.Indent
+		}
 		err := enc.Encode(data)
 		return err
 	case "yaml":
@@ -64,27 +79,27 @@ func Encode(w io.Writer, toType string, data interface{}) error {
 		err := enc.Encode(data)
 		return err
 	default:
-		return fmt.Errorf("invalid --to type: %s", toType)
+		return fmt.Errorf("invalid --to type: %s", jc.ToType)
 	}
 }
 
 func (jc *Jc) Run(r io.Reader, w io.Writer) error {
 	var data interface{}
-	err := Decode(r, jc.FromType, &data)
+	err := jc.Decode(r, &data)
 	if err != nil {
 		return err
 	}
-	err = Encode(w, jc.ToType, data)
+	err = jc.Encode(w, data)
 	return err
 }
 
 type Options struct {
-	FromType string `short:"f" long:"from" default:"json" description:"convert from [json|toml|msgpack]"`
-	ToType   string `short:"t" long:"to" default:"json" description:"convert to [json|toml|yaml|msgpack]"`
-	// Indent   string `short:"I" long:"indent" description:"indentation of output"`
-	NoColor bool `long:"no-color" env:"NO_COLOR" description:"NOT colorize output"`
-	Verbose bool `short:"v" long:"verbose" description:"show verbose output"`
-	Version bool `short:"V" long:"version" description:"show version"`
+	FromType string  `short:"f" long:"from" default:"json" description:"convert from [json|toml|msgpack]"`
+	ToType   string  `short:"t" long:"to" default:"json" description:"convert to [json|toml|yaml|msgpack]"`
+	Indent   *string `short:"I" long:"indent" description:"indentation of output"`
+	NoColor  bool    `long:"no-color" env:"NO_COLOR" description:"NOT colorize output"`
+	Verbose  bool    `short:"v" long:"verbose" description:"show verbose output"`
+	Version  bool    `short:"V" long:"version" description:"show version"`
 }
 
 func Main(args []string) {
@@ -103,6 +118,7 @@ func Main(args []string) {
 	jc := Jc{
 		FromType: opts.FromType,
 		ToType:   opts.ToType,
+		Indent:   opts.Indent,
 	}
 	err = jc.Run(os.Stdin, os.Stdout)
 	if err != nil {
