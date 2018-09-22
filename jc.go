@@ -4,17 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/BurntSushi/toml"
-	"github.com/jessevdk/go-flags"
 	"github.com/vmihailenco/msgpack"
 	"gopkg.in/yaml.v2"
 	"io"
-	"os"
+	"reflect"
 	"strings"
 )
 
 var (
-	version  string
-	revision string
+	Version  = "0.1.0-beta"
+	Revision = ""
 )
 
 type Jc struct {
@@ -23,8 +22,29 @@ type Jc struct {
 	Indent   *string
 }
 
-func cleanDataFromYaml(data interface{}) {
-	return // TODO
+func cleanDataFromYaml(data interface{}) interface{} {
+	fmt.Println(reflect.TypeOf(data), reflect.ValueOf(data))
+	switch oldData := data.(type) {
+	case *interface{}:
+		return cleanDataFromYaml(*oldData)
+	case map[interface{}]interface{}:
+		newData := make(map[string]interface{})
+		for k, v := range oldData {
+			s := fmt.Sprintf("%v", k)
+			newData[s] = cleanDataFromYaml(v)
+		}
+		fmt.Println(reflect.TypeOf(newData), reflect.ValueOf(newData))
+		return newData
+	case []interface{}:
+		newData := make([]interface{}, len(oldData))
+		for i, v := range oldData {
+			newData[i] = cleanDataFromYaml(v)
+		}
+		fmt.Println(reflect.TypeOf(newData), reflect.ValueOf(newData))
+		return newData
+	default:
+		return data
+	}
 }
 
 func (jc *Jc) Decode(r io.Reader, data interface{}) error {
@@ -42,7 +62,9 @@ func (jc *Jc) Decode(r io.Reader, data interface{}) error {
 		if err != nil {
 			return err
 		}
-		cleanDataFromYaml(data)
+		if v, ok := data.(*interface{}); ok {
+			*v = cleanDataFromYaml(data)
+		}
 		return nil
 	case "msgpack":
 		dec := msgpack.NewDecoder(r)
@@ -91,38 +113,4 @@ func (jc *Jc) Run(r io.Reader, w io.Writer) error {
 	}
 	err = jc.Encode(w, data)
 	return err
-}
-
-type Options struct {
-	FromType string  `short:"f" long:"from" default:"json" description:"convert from [json|toml|msgpack]"`
-	ToType   string  `short:"t" long:"to" default:"json" description:"convert to [json|toml|yaml|msgpack]"`
-	Indent   *string `short:"I" long:"indent" description:"indentation of output"`
-	NoColor  bool    `long:"no-color" env:"NO_COLOR" description:"NOT colorize output"`
-	Verbose  bool    `short:"v" long:"verbose" description:"show verbose output"`
-	Version  bool    `short:"V" long:"version" description:"show version"`
-}
-
-func Main(args []string) {
-	var opts Options
-	args, err := flags.ParseArgs(&opts, args)
-	if opts.Version {
-		if opts.Verbose {
-			fmt.Println("Version: ", version)
-			fmt.Println("Revision: ", revision)
-		} else {
-			fmt.Println(version)
-		}
-		os.Exit(0)
-	}
-
-	jc := Jc{
-		FromType: opts.FromType,
-		ToType:   opts.ToType,
-		Indent:   opts.Indent,
-	}
-	err = jc.Run(os.Stdin, os.Stdout)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 }
