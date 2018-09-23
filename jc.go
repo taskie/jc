@@ -7,7 +7,6 @@ import (
 	"github.com/vmihailenco/msgpack"
 	"gopkg.in/yaml.v2"
 	"io"
-	"reflect"
 	"strings"
 )
 
@@ -23,7 +22,6 @@ type Jc struct {
 }
 
 func cleanDataFromYaml(data interface{}) interface{} {
-	fmt.Println(reflect.TypeOf(data), reflect.ValueOf(data))
 	switch oldData := data.(type) {
 	case *interface{}:
 		return cleanDataFromYaml(*oldData)
@@ -33,14 +31,12 @@ func cleanDataFromYaml(data interface{}) interface{} {
 			s := fmt.Sprintf("%v", k)
 			newData[s] = cleanDataFromYaml(v)
 		}
-		fmt.Println(reflect.TypeOf(newData), reflect.ValueOf(newData))
 		return newData
 	case []interface{}:
 		newData := make([]interface{}, len(oldData))
 		for i, v := range oldData {
 			newData[i] = cleanDataFromYaml(v)
 		}
-		fmt.Println(reflect.TypeOf(newData), reflect.ValueOf(newData))
 		return newData
 	default:
 		return data
