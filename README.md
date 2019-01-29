@@ -1,6 +1,6 @@
 # jc
 
-convert JSON-like formats
+convert between JSON-like formats
 
 ## Install
 
@@ -16,6 +16,14 @@ go install github.com/taskie/jc/cmd/jc
 jc -t yaml <foo.json >foo.yaml
 jc -t toml <foo.json >foo.toml
 jc -t msgpack <foo.json >foo.msgpack
+```
+
+or
+
+```sh
+jc foo.json foo.yaml
+jc foo.json foo.toml
+jc foo.json foo.msgpack
 ```
 
 #### Input File (foo.json)

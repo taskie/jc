@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/joho/godotenv"
 	"github.com/vmihailenco/msgpack"
 	"gopkg.in/yaml.v2"
 )
@@ -69,14 +71,29 @@ func (jcDec *Decoder) Decode(data interface{}) error {
 		}
 		if v, ok := data.(*interface{}); ok {
 			*v = cleanDataFromYaml(data)
+		} else {
+			panic("data must be pointer")
 		}
 		return nil
 	case "msgpack":
 		dec := msgpack.NewDecoder(jcDec.Reader)
 		err := dec.Decode(data)
 		return err
+	case "dotenv":
+		m, err := godotenv.Parse(jcDec.Reader)
+		if err != nil {
+			return err
+		}
+		if v, ok := data.(*interface{}); ok {
+			*v = m
+		} else if v, ok := data.(*map[string]string); ok {
+			*v = m
+		} else {
+			panic("data must be pointer of string map or interface{}")
+		}
+		return nil
 	default:
-		return fmt.Errorf("invalid --from type: %s", jcDec.Type)
+		return fmt.Errorf("invalid input type: %s", jcDec.Type)
 	}
 }
 
@@ -87,7 +104,7 @@ func DecodeFile(fpath string, ty string, data interface{}) error {
 	}
 	defer f.Close()
 	if ty == "" {
-		ty = ExtToTypeMap(filepath.Ext(fpath))
+		ty = ExtToType(filepath.Ext(fpath))
 	}
 	return NewDecoder(f, ty).Decode(data)
 }
@@ -130,8 +147,34 @@ func (jcEnc *Encoder) Encode(data interface{}) error {
 		enc := msgpack.NewEncoder(jcEnc.Writer)
 		err := enc.Encode(data)
 		return err
+	case "dotenv":
+		m := make(map[string]string)
+		rv := reflect.ValueOf(data)
+		if rv.Kind() != reflect.Map {
+			return fmt.Errorf("value is not map")
+		}
+		ks := rv.MapKeys()
+		for _, k := range ks {
+			var sk string
+			var ok bool
+			if sk, ok = k.Interface().(string); !ok {
+				return fmt.Errorf("key is not string")
+			}
+			v := rv.MapIndex(k)
+			var sv string
+			if sv, ok = v.Interface().(string); !ok {
+				return fmt.Errorf("value is not string")
+			}
+			m[sk] = sv
+		}
+		s, err := godotenv.Marshal(m)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(jcEnc.Writer, s)
+		return err
 	default:
-		return fmt.Errorf("invalid --to type: %s", jcEnc.Type)
+		return fmt.Errorf("invalid output type: %s", jcEnc.Type)
 	}
 }
 
@@ -142,7 +185,7 @@ func EncodeFile(fpath string, ty string, data interface{}) error {
 	}
 	defer f.Close()
 	if ty == "" {
-		ty = ExtToTypeMap(filepath.Ext(fpath))
+		ty = ExtToType(filepath.Ext(fpath))
 	}
 	return NewEncoder(f, ty).Encode(data)
 }
@@ -155,36 +198,37 @@ var extToTypeMap = map[string]string{
 	".mp":          "msgpack",
 	".msgpack":     "msgpack",
 	".messagepack": "msgpack",
+	".env":         "dotenv",
 }
 
-func ExtToTypeMap(ext string) string {
-	ty := extToTypeMap[ext]
+func ExtToType(ext string) string {
+	ty := extToTypeMap[strings.ToLower(ext)]
 	if ty != "" {
 		return ty
 	}
 	return "json"
 }
 
-type Jc struct {
+type Converter struct {
 	FromType string
 	ToType   string
 	Indent   *string
 }
 
-func (jc *Jc) Decode(r io.Reader, data interface{}) error {
-	return NewDecoder(r, jc.FromType).Decode(data)
+func (conv *Converter) Decode(r io.Reader, data interface{}) error {
+	return NewDecoder(r, conv.FromType).Decode(data)
 }
 
-func (jc *Jc) Encode(w io.Writer, data interface{}) error {
-	return NewEncoder(w, jc.ToType).Encode(data)
+func (conv *Converter) Encode(w io.Writer, data interface{}) error {
+	return NewEncoder(w, conv.ToType).Encode(data)
 }
 
-func (jc *Jc) Run(r io.Reader, w io.Writer) error {
+func (conv *Converter) Convert(dst io.Writer, src io.Reader) error {
 	var data interface{}
-	err := jc.Decode(r, &data)
+	err := conv.Decode(src, &data)
 	if err != nil {
 		return err
 	}
-	err = jc.Encode(w, data)
+	err = conv.Encode(dst, data)
 	return err
 }
