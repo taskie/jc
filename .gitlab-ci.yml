@@ -9,17 +9,31 @@ before_script:
   - 'cd $GOPATH/src/$REPO_NAME'
 
 stages:
-    - test
-    - build
+  - test
+  - build
 
 format:
-    stage: test
-    script:
-      - 'go fmt $(go list ./... | grep -v /vendor/)'
-      - 'go vet $(go list ./... | grep -v /vendor/)'
-      - 'go test -race -cover $(go list ./... | grep -v /vendor/)'
+  stage: test
+  script:
+    - 'mkdir -p bin'
+    - 'curl -fsSL -C - -o bin/dep https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64'
+    - 'chmod +x bin/dep'
+    - 'bin/dep ensure -v'
+    - 'go fmt $(go list ./... | grep -v /vendor/)'
+    - 'go vet $(go list ./... | grep -v /vendor/)'
+    - 'go test -race -cover $(go list ./... | grep -v /vendor/)'
 
 compile:
-    stage: build
-    script:
-      - 'go build -race'
+  stage: build
+  script:
+    - 'cd cmd/jc'
+    - 'go build'
+  artifacts:
+    paths:
+      - cmd/jc/jc
+
+cache:
+  key: '$CI_COMMIT_REF_SLUG'
+  paths:
+    - bin/dep
+    - vendor
