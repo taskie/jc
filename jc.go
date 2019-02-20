@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	Version  = "0.1.0-beta"
-	Revision = ""
+	Version = "0.1.0-beta"
 )
 
 var defaultResolver *codecs.CodecResolver
@@ -120,28 +119,29 @@ type Converter struct {
 	Indent   *string
 }
 
-func (conv *Converter) Decode(r io.Reader, data interface{}) error {
-	d := NewDecoder(r, conv.FromType)
-	if conv.Resolver != nil {
-		d.Resolver = conv.Resolver
+func (c *Converter) Decode(r io.Reader, data interface{}) error {
+	d := NewDecoder(r, c.FromType)
+	if c.Resolver != nil {
+		d.Resolver = c.Resolver
 	}
 	return d.Decode(data)
 }
 
-func (conv *Converter) Encode(w io.Writer, data interface{}) error {
-	e := NewEncoder(w, conv.ToType)
-	if conv.Resolver != nil {
-		e.Resolver = conv.Resolver
+func (c *Converter) Encode(w io.Writer, data interface{}) error {
+	e := NewEncoder(w, c.ToType)
+	e.Indent = c.Indent
+	if c.Resolver != nil {
+		e.Resolver = c.Resolver
 	}
 	return e.Encode(data)
 }
 
-func (conv *Converter) Convert(dst io.Writer, src io.Reader) error {
+func (c *Converter) Convert(dst io.Writer, src io.Reader) error {
 	var data interface{}
-	err := conv.Decode(src, &data)
+	err := c.Decode(src, &data)
 	if err != nil {
 		return err
 	}
-	err = conv.Encode(dst, data)
+	err = c.Encode(dst, data)
 	return err
 }

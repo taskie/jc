@@ -2,10 +2,12 @@
 
 convert between JSON-like formats
 
+![jc](images/example.gif)
+
 ## Install
 
 ```sh
-go install github.com/taskie/jc/cmd/jc
+go install -u github.com/taskie/jc/cmd/jc
 ```
 
 ## Usage
@@ -13,17 +15,19 @@ go install github.com/taskie/jc/cmd/jc
 ### Convert
 
 ```sh
-jc -t yaml <foo.json >foo.yaml
-jc -t toml <foo.json >foo.toml
-jc -t msgpack <foo.json >foo.msgpack
+jc foo.json foo.yaml
+jc foo.yaml foo.toml
+jc foo.toml foo.msgpack
+jc foo.msgpack foo.json
 ```
 
 or
 
 ```sh
-jc foo.json foo.yaml
-jc foo.json foo.toml
-jc foo.json foo.msgpack
+jc -t yaml <foo.json >foo.yaml
+jc -f yaml -t toml <foo.yaml >foo.toml
+jc -f toml -t msgpack <foo.toml >foo.msgpack
+jc -f msgpack <foo.msgpack >foo.json
 ```
 
 #### Input File (foo.json)
@@ -47,7 +51,7 @@ message:
   hello = true
 
 [[message]]
-  world = 42.0
+  world = 42
 ```
 
 #### Output File (foo.msgpack)
@@ -58,16 +62,8 @@ xxd foo.msgpack
 
 ```
 00000000: 81a7 6d65 7373 6167 6592 81a5 6865 6c6c  ..message...hell
-00000010: 6fc3 81a5 776f 726c 64cb 4045 0000 0000  o...world.@E....
-00000020: 0000                                     ..
-```
-
-### Convert (Reverse)
-
-```sh
-jc -f yaml <foo.yaml >foo.json
-jc -f toml <foo.toml >foo.json
-jc -f msgpack <foo.msgpack >foo.json
+00000010: 6fc3 81a5 776f 726c 64d3 0000 0000 0000  o...world.......
+00000020: 002a                                     .*
 ```
 
 ## Dependency

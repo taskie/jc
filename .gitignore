@@ -53,3 +53,4 @@ _testmain.go
 /cmd/jc/jc
 /test/coverage
 /vendor
+/tmp
