@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	Version = "0.1.0-beta"
+	Version = "0.1.0"
 )
 
 var defaultResolver *codecs.CodecResolver
