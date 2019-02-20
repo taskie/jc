@@ -1,18 +1,12 @@
 package jc
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 
-	"github.com/BurntSushi/toml"
-	"github.com/joho/godotenv"
-	"github.com/vmihailenco/msgpack"
-	"gopkg.in/yaml.v2"
+	"github.com/taskie/jc/codecs"
 )
 
 var (
@@ -20,81 +14,46 @@ var (
 	Revision = ""
 )
 
-func cleanDataFromYaml(data interface{}) interface{} {
-	switch oldData := data.(type) {
-	case *interface{}:
-		return cleanDataFromYaml(*oldData)
-	case map[interface{}]interface{}:
-		newData := make(map[string]interface{})
-		for k, v := range oldData {
-			s := fmt.Sprintf("%v", k)
-			newData[s] = cleanDataFromYaml(v)
-		}
-		return newData
-	case []interface{}:
-		newData := make([]interface{}, len(oldData))
-		for i, v := range oldData {
-			newData[i] = cleanDataFromYaml(v)
-		}
-		return newData
-	default:
-		return data
-	}
+var defaultResolver *codecs.CodecResolver
+
+func init() {
+	defaultResolver = codecs.NewCodecResolver()
+	defaultResolver.RegisterAsDefault(codecs.JsonCodec)
+	defaultResolver.RegisterAll(codecs.JsonCodec)
+	defaultResolver.RegisterAll(codecs.MsgpackCodec)
+	defaultResolver.RegisterAll(codecs.YamlCodec)
+	defaultResolver.RegisterAll(codecs.TomlCodec)
+	defaultResolver.RegisterAll(codecs.DotenvCodec)
+}
+
+func ExtToType(ext string) string {
+	return defaultResolver.ExtToType(ext)
 }
 
 type Decoder struct {
-	Reader io.Reader
-	Type   string
+	Resolver *codecs.CodecResolver
+	Reader   io.Reader
+	Type     string
 }
 
 func NewDecoder(r io.Reader, ty string) *Decoder {
 	return &Decoder{
-		Reader: r,
-		Type:   ty,
+		Resolver: defaultResolver,
+		Reader:   r,
+		Type:     ty,
 	}
 }
 
-func (jcDec *Decoder) Decode(data interface{}) error {
-	switch strings.ToLower(jcDec.Type) {
-	case "json":
-		dec := json.NewDecoder(jcDec.Reader)
-		err := dec.Decode(data)
-		return err
-	case "toml":
-		_, err := toml.DecodeReader(jcDec.Reader, data)
-		return err
-	case "yaml":
-		dec := yaml.NewDecoder(jcDec.Reader)
-		err := dec.Decode(data)
-		if err != nil {
-			return err
-		}
-		if v, ok := data.(*interface{}); ok {
-			*v = cleanDataFromYaml(data)
-		} else {
-			panic("data must be pointer")
-		}
-		return nil
-	case "msgpack":
-		dec := msgpack.NewDecoder(jcDec.Reader)
-		err := dec.Decode(data)
-		return err
-	case "dotenv":
-		m, err := godotenv.Parse(jcDec.Reader)
-		if err != nil {
-			return err
-		}
-		if v, ok := data.(*interface{}); ok {
-			*v = m
-		} else if v, ok := data.(*map[string]string); ok {
-			*v = m
-		} else {
-			panic("data must be pointer of string map or interface{}")
-		}
-		return nil
-	default:
-		return fmt.Errorf("invalid input type: %s", jcDec.Type)
+func (d *Decoder) Decode(data interface{}) error {
+	codec := d.Resolver.Resolve(d.Type)
+	if codec == nil {
+		return fmt.Errorf("invalid input type: %s", d.Type)
 	}
+	dec, err := codec.DecoderBuilder(d.Reader, nil)
+	if err != nil {
+		return err
+	}
+	return dec.Decode(data)
 }
 
 func DecodeFile(fpath string, ty string, data interface{}) error {
@@ -110,72 +69,36 @@ func DecodeFile(fpath string, ty string, data interface{}) error {
 }
 
 type Encoder struct {
-	Writer io.Writer
-	Type   string
-	Indent *string
+	Resolver *codecs.CodecResolver
+	Writer   io.Writer
+	Type     string
+	Indent   *string
 }
 
 func NewEncoder(w io.Writer, ty string) *Encoder {
 	return &Encoder{
-		Writer: w,
-		Type:   ty,
+		Resolver: defaultResolver,
+		Writer:   w,
+		Type:     ty,
 	}
 }
 
-func (jcEnc *Encoder) Encode(data interface{}) error {
-	switch strings.ToLower(jcEnc.Type) {
-	case "json":
-		enc := json.NewEncoder(jcEnc.Writer)
-		enc.SetEscapeHTML(false)
-		if jcEnc.Indent != nil {
-			enc.SetIndent("", *jcEnc.Indent)
-		}
-		err := enc.Encode(data)
-		return err
-	case "toml":
-		enc := toml.NewEncoder(jcEnc.Writer)
-		if jcEnc.Indent != nil {
-			enc.Indent = *jcEnc.Indent
-		}
-		err := enc.Encode(data)
-		return err
-	case "yaml":
-		enc := yaml.NewEncoder(jcEnc.Writer)
-		err := enc.Encode(data)
-		return err
-	case "msgpack":
-		enc := msgpack.NewEncoder(jcEnc.Writer)
-		err := enc.Encode(data)
-		return err
-	case "dotenv":
-		m := make(map[string]string)
-		rv := reflect.ValueOf(data)
-		if rv.Kind() != reflect.Map {
-			return fmt.Errorf("value is not map")
-		}
-		ks := rv.MapKeys()
-		for _, k := range ks {
-			var sk string
-			var ok bool
-			if sk, ok = k.Interface().(string); !ok {
-				return fmt.Errorf("key is not string")
-			}
-			v := rv.MapIndex(k)
-			var sv string
-			if sv, ok = v.Interface().(string); !ok {
-				return fmt.Errorf("value is not string")
-			}
-			m[sk] = sv
-		}
-		s, err := godotenv.Marshal(m)
-		if err != nil {
-			return err
-		}
-		_, err = io.WriteString(jcEnc.Writer, s)
-		return err
-	default:
-		return fmt.Errorf("invalid output type: %s", jcEnc.Type)
+func (e *Encoder) Encode(data interface{}) error {
+	codec := e.Resolver.Resolve(e.Type)
+	if codec == nil {
+		return fmt.Errorf("invalid output type: %s", e.Type)
 	}
+	opts := map[string]interface{}{
+		"escapeHTML": false,
+	}
+	if e.Indent != nil {
+		opts["indent"] = *e.Indent
+	}
+	enc, err := codec.EncoderBuilder(e.Writer, opts)
+	if err != nil {
+		return err
+	}
+	return enc.Encode(data)
 }
 
 func EncodeFile(fpath string, ty string, data interface{}) error {
@@ -190,37 +113,27 @@ func EncodeFile(fpath string, ty string, data interface{}) error {
 	return NewEncoder(f, ty).Encode(data)
 }
 
-var extToTypeMap = map[string]string{
-	".json":        "json",
-	".toml":        "toml",
-	".yml":         "yaml",
-	".yaml":        "yaml",
-	".mp":          "msgpack",
-	".msgpack":     "msgpack",
-	".messagepack": "msgpack",
-	".env":         "dotenv",
-}
-
-func ExtToType(ext string) string {
-	ty := extToTypeMap[strings.ToLower(ext)]
-	if ty != "" {
-		return ty
-	}
-	return "json"
-}
-
 type Converter struct {
+	Resolver *codecs.CodecResolver
 	FromType string
 	ToType   string
 	Indent   *string
 }
 
 func (conv *Converter) Decode(r io.Reader, data interface{}) error {
-	return NewDecoder(r, conv.FromType).Decode(data)
+	d := NewDecoder(r, conv.FromType)
+	if conv.Resolver != nil {
+		d.Resolver = conv.Resolver
+	}
+	return d.Decode(data)
 }
 
 func (conv *Converter) Encode(w io.Writer, data interface{}) error {
-	return NewEncoder(w, conv.ToType).Encode(data)
+	e := NewEncoder(w, conv.ToType)
+	if conv.Resolver != nil {
+		e.Resolver = conv.Resolver
+	}
+	return e.Encode(data)
 }
 
 func (conv *Converter) Convert(dst io.Writer, src io.Reader) error {

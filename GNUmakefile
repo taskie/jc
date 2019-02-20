@@ -11,14 +11,14 @@ install:
 	$(MAKE) -C $(CMD_DIR) install
 
 test:
-	go test
+	go test $(shell go list ./... | grep -v /vendor/)
 
 fmt:
 	find . -name '*.go' | xargs gofmt -w
 
 coverage:
 	mkdir -p test/coverage
-	go test -coverprofile=test/coverage/cover.out
+	go test -coverprofile=test/coverage/cover.out $(shell go list ./... | grep -v /vendor/)
 	go tool cover -html=test/coverage/cover.out -o test/coverage/cover.html
 
 dep-init:
