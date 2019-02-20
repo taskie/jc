@@ -1,11 +1,9 @@
 package main
 
 import (
-	"github.com/taskie/jc/cli"
+	"github.com/taskie/jc/cli/jc"
 )
 
-var revision = ""
-
 func main() {
-	cli.Main()
+	jc.Main()
 }

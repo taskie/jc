@@ -3,11 +3,11 @@
 CMD_DIR := cmd/jc
 
 build:
-	go build -v -ldflags "-s -w -X jc.Revision=$(shell git rev-parse --short HEAD)"
+	go build -v -ldflags "-s -w"
 	$(MAKE) -C $(CMD_DIR) build
 
 install:
-	go install -v -ldflags "-s -w -X jc.Revision=$(shell git rev-parse --short HEAD)"
+	go install -v -ldflags "-s -w"
 	$(MAKE) -C $(CMD_DIR) install
 
 test:
@@ -31,10 +31,9 @@ dep-ensure:
 
 dep-graph:
 	mkdir -p images
-	dep status -dot | dot -Tpng -o images/dependency.png
+	dep status -dot | grep -v -E '^The ' | dot -Tpng -o images/dependency.png
 
 pre-commit:
-	# $(MAKE) dep-init
 	$(MAKE) dep-ensure
 	$(MAKE) dep-graph
 	$(MAKE) fmt
