@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	FromType, ToType, Indent string
+	FromType, ToType, Indent, LogLevel string
 }
 
 var configFile string
@@ -22,8 +22,10 @@ var (
 	verbose, debug, version bool
 )
 
+const CommandName = "jc"
+
 func init() {
-	Command.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file (default is jc.yml)")
+	Command.PersistentFlags().StringVarP(&configFile, "config", "c", "", `config file (default "jc.yml")`)
 	Command.Flags().StringP("fromType", "f", "", "convert from [json|toml|yaml|msgpack|dotenv]")
 	Command.Flags().StringP("toType", "t", "", "convert to [json|toml|yaml|msgpack|dotenv]")
 	Command.Flags().StringP("indent", "I", "", "indentation of output")
@@ -50,16 +52,16 @@ func initConfig() {
 	if configFile != "" {
 		viper.SetConfigFile(configFile)
 	} else {
-		viper.SetConfigName("jc")
+		viper.SetConfigName(CommandName)
 		conf, err := osplus.GetXdgConfigHome()
 		if err != nil {
 			log.Info(err)
 		} else {
-			viper.AddConfigPath(filepath.Join(conf, "jc"))
+			viper.AddConfigPath(filepath.Join(conf, CommandName))
 		}
 		viper.AddConfigPath(".")
 	}
-	viper.SetEnvPrefix("jc")
+	viper.SetEnvPrefix(CommandName)
 	viper.AutomaticEnv()
 
 	err := viper.ReadInConfig()
@@ -77,7 +79,8 @@ func Main() {
 }
 
 var Command = &cobra.Command{
-	Use: "jc",
+	Use:  CommandName,
+	Args: cobra.RangeArgs(0, 2),
 	Run: func(cmd *cobra.Command, args []string) {
 		err := run(cmd, args)
 		if err != nil {
@@ -90,6 +93,14 @@ func run(cmd *cobra.Command, args []string) error {
 	if version {
 		fmt.Println(jc.Version)
 		return nil
+	}
+	if config.LogLevel != "" {
+		lv, err := log.ParseLevel(config.LogLevel)
+		if err != nil {
+			log.Warn(err)
+		} else {
+			log.SetLevel(lv)
+		}
 	}
 	if debug {
 		if viper.ConfigFileUsed() != "" {
@@ -127,7 +138,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer r.Close()
-	w, commit, err := opener.CreateTempFileWithDestination(output, "", "jc-")
+	w, commit, err := opener.CreateTempFileWithDestination(output, "", CommandName+"-")
 	if err != nil {
 		return err
 	}
