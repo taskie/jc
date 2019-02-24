@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/iancoleman/strcase"
 	"github.com/k0kubun/pp"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -26,16 +27,19 @@ const CommandName = "jc"
 
 func init() {
 	Command.PersistentFlags().StringVarP(&configFile, "config", "c", "", `config file (default "jc.yml")`)
-	Command.Flags().StringP("fromType", "f", "", "convert from [json|toml|yaml|msgpack|dotenv]")
-	Command.Flags().StringP("toType", "t", "", "convert to [json|toml|yaml|msgpack|dotenv]")
+	Command.Flags().StringP("from-type", "f", "", "convert from [json|toml|yaml|msgpack|dotenv]")
+	Command.Flags().StringP("to-type", "t", "", "convert to [json|toml|yaml|msgpack|dotenv]")
 	Command.Flags().StringP("indent", "I", "", "indentation of output")
 	Command.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	Command.Flags().BoolVarP(&debug, "debug", "g", false, "debug output")
 	Command.Flags().BoolVarP(&version, "version", "V", false, "show Version")
 
-	viper.BindPFlag("FromType", Command.Flags().Lookup("fromType"))
-	viper.BindPFlag("ToType", Command.Flags().Lookup("toType"))
-	viper.BindPFlag("Indent", Command.Flags().Lookup("indent"))
+	for _, s := range []string{"from-type", "to-type", "indent"} {
+		envKey := strcase.ToSnake(s)
+		structKey := strcase.ToCamel(s)
+		viper.BindPFlag(envKey, Command.Flags().Lookup(s))
+		viper.RegisterAlias(structKey, envKey)
+	}
 
 	cobra.OnInitialize(initConfig)
 }
