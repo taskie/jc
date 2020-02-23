@@ -1,116 +1,61 @@
 package jc
 
 import (
-	"fmt"
+	"io"
 	"path/filepath"
 
-	"github.com/iancoleman/strcase"
-	"github.com/k0kubun/pp"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/taskie/fwv"
 	"github.com/taskie/jc"
-	"github.com/taskie/osplus"
-)
-
-type Config struct {
-	FromType, ToType, Indent, LogLevel string
-}
-
-var configFile string
-var config Config
-var (
-	verbose, debug, version bool
+	"github.com/taskie/ose"
+	"github.com/taskie/ose/coli"
+	"go.uber.org/zap"
 )
 
 const CommandName = "jc"
 
+var Command *cobra.Command
+
 func init() {
-	Command.PersistentFlags().StringVarP(&configFile, "config", "c", "", `config file (default "jc.yml")`)
-	Command.Flags().StringP("from-type", "f", "", "convert from [json|toml|yaml|msgpack|dotenv]")
-	Command.Flags().StringP("to-type", "t", "", "convert to [json|toml|yaml|msgpack|dotenv]")
-	Command.Flags().StringP("indent", "I", "", "indentation of output")
-	Command.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-	Command.Flags().BoolVarP(&debug, "debug", "g", false, "debug output")
-	Command.Flags().BoolVarP(&version, "version", "V", false, "show Version")
-
-	for _, s := range []string{"from-type", "to-type", "indent"} {
-		envKey := strcase.ToSnake(s)
-		structKey := strcase.ToCamel(s)
-		viper.BindPFlag(envKey, Command.Flags().Lookup(s))
-		viper.RegisterAlias(structKey, envKey)
-	}
-
-	cobra.OnInitialize(initConfig)
-}
-
-func initConfig() {
-	if debug {
-		log.SetLevel(log.DebugLevel)
-	} else if verbose {
-		log.SetLevel(log.InfoLevel)
-	} else {
-		log.SetLevel(log.WarnLevel)
-	}
-
-	if configFile != "" {
-		viper.SetConfigFile(configFile)
-	} else {
-		viper.SetConfigName(CommandName)
-		conf, err := osplus.GetXdgConfigHome()
-		if err != nil {
-			log.Info(err)
-		} else {
-			viper.AddConfigPath(filepath.Join(conf, CommandName))
-		}
-		viper.AddConfigPath(".")
-	}
-	viper.SetEnvPrefix(CommandName)
-	viper.AutomaticEnv()
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Debug(err)
-	}
-	err = viper.Unmarshal(&config)
-	if err != nil {
-		log.Warn(err)
-	}
+	Command = NewCommand(coli.NewColiInThisWorld())
 }
 
 func Main() {
 	Command.Execute()
 }
 
-var Command = &cobra.Command{
-	Use:  CommandName,
-	Args: cobra.RangeArgs(0, 2),
-	Run: func(cmd *cobra.Command, args []string) {
-		err := run(cmd, args)
-		if err != nil {
-			log.Fatal(err)
-		}
-	},
+func NewCommand(cl *coli.Coli) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:  CommandName,
+		Args: cobra.RangeArgs(0, 2),
+		Run:  cl.WrapRun(run),
+	}
+	cl.Prepare(cmd)
+
+	flg := cmd.Flags()
+	flg.StringP("from-type", "f", "", "convert from [json|toml|yaml|msgpack|dotenv]")
+	flg.StringP("to-type", "t", "", "convert to [json|toml|yaml|msgpack|dotenv]")
+	flg.StringP("indent", "I", "", "indentation of output")
+
+	cl.BindFlags(flg, []string{"from-type", "to-type", "indent"})
+	return cmd
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	if version {
-		fmt.Println(jc.Version)
-		return nil
+type Config struct {
+	FromType, ToType, Indent, LogLevel string
+}
+
+func run(cl *coli.Coli, cmd *cobra.Command, args []string) {
+	v := cl.Viper()
+	log := zap.L()
+	if v.GetBool("version") {
+		cmd.Println(fwv.Version)
+		return
 	}
-	if config.LogLevel != "" {
-		lv, err := log.ParseLevel(config.LogLevel)
-		if err != nil {
-			log.Warn(err)
-		} else {
-			log.SetLevel(lv)
-		}
-	}
-	if debug {
-		if viper.ConfigFileUsed() != "" {
-			log.Debugf("Using config file: %s", viper.ConfigFileUsed())
-		}
-		log.Debug(pp.Sprint(config))
+	var config Config
+	err := v.Unmarshal(&config)
+	if err != nil {
+		log.Fatal("can't unmarshal config", zap.Error(err))
 	}
 
 	input := ""
@@ -124,7 +69,7 @@ func run(cmd *cobra.Command, args []string) error {
 		input = args[0]
 		output = args[1]
 	default:
-		return fmt.Errorf("invalid arguments: %v", args[2:])
+		log.Fatal("invalid arguments", zap.Strings("arguments", args[2:]))
 	}
 
 	fromType := config.FromType
@@ -136,27 +81,25 @@ func run(cmd *cobra.Command, args []string) error {
 		toType = jc.ExtToType(filepath.Ext(output))
 	}
 
-	opener := osplus.NewOpener()
+	opener := ose.NewOpenerInThisWorld()
 	r, err := opener.Open(input)
 	if err != nil {
-		return err
+		log.Fatal("can't open", zap.Error(err))
 	}
 	defer r.Close()
-	w, commit, err := opener.CreateTempFileWithDestination(output, "", CommandName+"-")
+	_, err = opener.CreateTempFile("", CommandName, output, func(f io.WriteCloser) (bool, error) {
+		jc := jc.Converter{
+			FromType: fromType,
+			ToType:   toType,
+			Indent:   &config.Indent,
+		}
+		err = jc.Convert(f, r)
+		if err != nil {
+			log.Fatal("can't convert", zap.Error(err))
+		}
+		return true, nil
+	})
 	if err != nil {
-		return err
+		log.Fatal("can't create file", zap.Error(err))
 	}
-	defer w.Close()
-
-	jc := jc.Converter{
-		FromType: fromType,
-		ToType:   toType,
-		Indent:   &config.Indent,
-	}
-	err = jc.Convert(w, r)
-	if err != nil {
-		return err
-	}
-	commit(true)
-	return nil
 }
